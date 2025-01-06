@@ -1,0 +1,5 @@
+site:{TARGET} inurl:admin
+site:{TARGET} filetype:php
+site:{TARGET} intitle:"Index of"
+ip:{TARGET} ext:conf OR ext:config
+site:{TARGET} "password file"
