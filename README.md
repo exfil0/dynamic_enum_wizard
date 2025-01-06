@@ -106,7 +106,7 @@ sudo ./interactive_enum_wizard.py
 
 ## Example Session
 ```bash
-$ sudo ./interactive_enum_wizard.py
+$ sudo ./dynamic_enum_wizard.py
 
       :::::::::       ::::::::::     :::       ::: 
      :+:    :+:      :+:            :+:       :+:  
