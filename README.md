@@ -13,6 +13,8 @@
 - **Directory Brute-Forcing** wordlist choice (common/big)
 - **Optional Concurrency** for DNS resolution, Dirb, GoWitness, Naabu, etc.
 
+![Files Structure](https://github.com/exfil0/dynamic_enum_wizard/blob/main/files-structure.png)
+
 ### WHOIS & DNS
 - WHOIS queries to glean ownership and registrar info.
 - DNS resolution (with optional concurrency) to map subdomains to IPs.
