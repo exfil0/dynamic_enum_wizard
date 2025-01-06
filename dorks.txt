@@ -1,5 +1,95 @@
 site:{TARGET} inurl:admin
-site:{TARGET} filetype:php
-site:{TARGET} intitle:"Index of"
+site:{TARGET} inurl:login
+site:{TARGET} inurl:admin/login
+site:{TARGET} intitle:"Admin Login"
+site:{TARGET} "admin panel"
+site:{TARGET} "sign in"
 ip:{TARGET} ext:conf OR ext:config
+site:{TARGET} ext:conf
+site:{TARGET} ext:config
+site:{TARGET} "configuration file"
+site:{TARGET} ext:ini OR ext:env
+site:{TARGET} inurl:settings
+site:{TARGET} filetype:php
+site:{TARGET} filetype:asp
+site:{TARGET} filetype:jsp
+site:{TARGET} filetype:log
+site:{TARGET} filetype:sql
+site:{TARGET} filetype:xml
+site:{TARGET} filetype:json
+site:{TARGET} filetype:docx
+site:{TARGET} filetype:xlsx
+site:{TARGET} filetype:pdf
+site:{TARGET} filetype:bak
+site:{TARGET} intitle:"Index of"
+site:{TARGET} intitle:"Directory listing"
+site:{TARGET} intitle:"Parent Directory"
+site:{TARGET} inurl:backup
+site:{TARGET} inurl:old
+site:{TARGET} inurl:archive
+site:{TARGET} "Index of /"
 site:{TARGET} "password file"
+site:{TARGET} "credentials"
+site:{TARGET} "API key"
+site:{TARGET} "secret key"
+site:{TARGET} "token"
+site:{TARGET} "username"
+site:{TARGET} "db_password"
+site:{TARGET} "ftp password"
+site:{TARGET} "ssh password"
+site:{TARGET} "phpinfo()"
+site:{TARGET} "test.php"
+site:{TARGET} inurl:debug
+site:{TARGET} "error_log"
+site:{TARGET} ext:sql "dump"
+site:{TARGET} "database error"
+site:{TARGET} inurl:uploads
+site:{TARGET} inurl:files
+site:{TARGET} inurl:documents
+site:{TARGET} ext:log
+site:{TARGET} "uploaded files"
+site:{TARGET} ext:zip
+site:{TARGET} ext:rar
+site:{TARGET} "backup.zip"
+site:{TARGET} "backup.tar"
+site:{TARGET} "@{TARGET}"
+site:{TARGET} "contact us"
+site:{TARGET} "email address"
+site:{TARGET} "webmaster"
+site:{TARGET} "support"
+site:{TARGET} inurl:api
+site:{TARGET} inurl:callback
+site:{TARGET} inurl:webhook
+site:{TARGET} ext:json inurl:api
+site:{TARGET} "google analytics"
+site:{TARGET} "tracking id"
+site:{TARGET} inurl:social
+site:{TARGET} inurl:share
+ip:{TARGET} "camera"
+ip:{TARGET} inurl:webcam
+ip:{TARGET} inurl:login.cgi
+ip:{TARGET} inurl:stream
+ip:{TARGET} ext:cgi
+site:{TARGET} ext:py
+site:{TARGET} ext:java
+site:{TARGET} ext:js
+site:{TARGET} ext:rb
+site:{TARGET} "source code"
+site:{TARGET} "repository"
+site:{TARGET} inurl:git
+site:{TARGET} inurl:svn
+site:{TARGET} inurl:wp-content
+site:{TARGET} inurl:wp-includes
+site:{TARGET} inurl:admin
+site:{TARGET} inurl:private
+site:{TARGET} inurl:config
+site:{TARGET} "error"
+site:{TARGET} "404 Not Found"
+site:{TARGET} "500 Internal Server Error"
+site:{TARGET} "Access Denied"
+site:{TARGET} "not authorized"
+site:{TARGET} "Welcome to"
+site:{TARGET} "It works!"
+site:{TARGET} "Under Construction"
+site:{TARGET} "default page"
+site:{TARGET} intitle:"Welcome"
