@@ -174,3 +174,16 @@ We welcome:
 - Concurrency improvements.
 - Additional tool integrations.
 - Advanced scanning logic.
+
+---
+
+# Changelog
+
+| Version | Date       | Additions                                                                                                             | Changes                                                                                                             | Fixes                                                                                               | Removals                                                                                     |
+|---------|------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| v1.1    | 2025-01-07 | - WHOIS Lookups: Automatic whois step at the beginning, saving results to `logs/whois.txt`.                          | - Timestamped Workspace: Creates `wizard_enum_<domain>_<YYYYMMDD-HHMMSS>` to avoid overwriting results.             | - Auto-install Issues: Improved handling of `apt-get` and `pip3` installations.                   | - Excess Debug Output: Default terminal output is now minimal, focusing on a curses-based spinner. |
+|         |            | - GoWitness Screenshot Capture: Stores HTTP/HTTPS screenshots in `gowitness_shots/`.                                | - Flow of Steps: WHOIS first, followed by subdomain, DNS, SSL, email, scanning, and reporting.                       | - Error Handling: Hardened around subprocess calls and concurrency to prevent partial crashes.     |                                                                                             |
+|         |            | - SearchSploit Integration: Queries `searchsploit` for Nmap results, saving outputs to `logs/searchsploit_results.txt`. | - Curses Spinner: Enhanced with environment references (OS, hostname, IP) and optional CPU/Mem usage.               |                                                                                                     |                                                                                             |
+|         |            | - Consolidated JSON/CSV Report: Generates `consolidated_report.json` and `resolved_ips.csv` in the workspace.        |                                                                                                                     |                                                                                                     |                                                                                             |
+|         |            | - Environment Info in Spinner: Displays OS version, hostname, and public IP alongside CPU/Mem usage and time.       |                                                                                                                     |                                                                                                     |                                                                                             |
+
