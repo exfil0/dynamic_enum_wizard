@@ -1,4 +1,4 @@
-# Dynamic_enum_Wizard
+# DYNAMIC ENUM WIZARD
 
 **Dynamic_enum_Wizard** is a curses-based wizard that conducts a wide range of security reconnaissance tasks while keeping the terminal output to a minimum. All detailed logs and data are stored in a **timestamped** workspace folder (e.g., `wizard_enum_<domain>_<YYYYMMDD-HHMMSS>`). This approach lets you see just enough progress on screen—plus a spinner that can show CPU/Memory usage **and** environment info (OS, hostname, public IP)—while the real work is logged to disk.
 
