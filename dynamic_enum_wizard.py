@@ -62,29 +62,28 @@ REQUIRED_TOOLS = {
     "dirb": "dirb",
     "naabu": "naabu",
     "gowitness": "gowitness",
-    # "emailharvester": "emailharvester",  # Removed - known bug with ASK
-    "theharvester": "theharvester",       # We'll call it theHarvester
-    "recon-ng": "recon-ng",
-    # sublist3r is checked below
+    "theharvester": "theharvester",
+    "recon-ng": "recon-ng"
+    # sublist3r is handled separately
 }
 
 SUBLIST3R_CMD     = "sublist3r"
 SUBLIST3R_APT_PKG = "sublist3r"
 
-SPINNER_CHARS  = ["<", ">", "*", "X"]
-PROGRESS_LINES = []
-stop_spinner   = False
-use_concurrency= False
-STEP_TIMINGS   = {}  # step_name -> (start_time, end_time)
-start_time     = None
+SPINNER_CHARS     = ["<", ">", "*", "X"]
+PROGRESS_LINES    = []
+stop_spinner      = False
+use_concurrency   = False
+STEP_TIMINGS      = {}  # step_name -> (start_time, end_time)
+start_time        = None
 
 # We'll store a single-line environment reference for the spinner
 ENV_LINE = ""  # Will be set in main() after we gather environment info.
 
-# ------------------ LOGGING SETUP ------------------
+# -------------- LOGGING SETUP --------------
 # Configured in main() at the bottom.
 
-# -------------- HELPER FUNCTIONS (Timing, Commands, Domain Check) --------------
+# -------------- TIMING & UTILS --------------
 
 def start_timing(step_name):
     STEP_TIMINGS[step_name] = [time.time(), None]
@@ -169,8 +168,8 @@ def redraw_screen(stdscr):
 
 def spinner_thread_func(stdscr):
     """
-    Spinner thread that shows CPU/MEM usage (if psutil) and elapsed time since start_time,
-    plus environment info (OS, hostname, public IP) near the timer.
+    A separate thread that updates the bottom line with a spinner, CPU/MEM usage (if psutil),
+    and elapsed time since start_time, plus environment info (OS, hostname, public IP).
     """
     global stop_spinner, ENV_LINE
     import time
@@ -193,9 +192,8 @@ def spinner_thread_func(stdscr):
         ss = int(elapsed % 60)
         time_str = f"TIME:{hh:02d}:{mm:02d}:{ss:02d}"
 
-        # ENV_LINE might look like: "OS: Linux Host: myhost IP: 1.2.3.4"
         msg = f"[ Mapping Attack Surface... {spin_char} ]{usage_str} {time_str} {ENV_LINE}"
-        msg = msg[:width-1]  # Truncate if terminal is narrow
+        msg = msg[:width-1]
 
         stdscr.attron(curses.color_pair(4))
         spinner_row = height - 1
@@ -207,6 +205,7 @@ def spinner_thread_func(stdscr):
 
         time.sleep(0.15)
 
+    # Clean up spinner line
     spinner_row = curses.LINES - 1
     stdscr.move(spinner_row, 0)
     stdscr.clrtoeol()
@@ -217,41 +216,40 @@ def spinner_thread_func(stdscr):
 def check_and_install_tools(stdscr):
     """
     Checks for required tools and attempts to:
-      1) apt-get update
-      2) apt-get install --only-upgrade
-      3) pip3 install --upgrade
+      - apt-get update, apt-get install --only-upgrade
+      - pip3 install --upgrade
     to ensure we have the latest versions.
     Logs failures or successes.
     """
     import subprocess
     apt_updated = False
     for cmd, pkg in REQUIRED_TOOLS.items():
-        # Force apt-get update once if not done
         if not apt_updated:
             subprocess.run(["apt-get", "update", "-y"], check=False)
             apt_updated = True
 
-        # Attempt to upgrade from apt
         add_progress_line(stdscr, f"[!] Upgrading '{cmd}' => '{pkg}' via apt-get...", color_pair=2)
-        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => '{pkg}' via apt-get...")
+        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => '{pkg}' (apt-get).")
         subprocess.run(["apt-get", "install", "--only-upgrade", "-y", pkg], check=False)
 
-        # Also try pip upgrade
         add_progress_line(stdscr, f"[!] Upgrading '{cmd}' => '{cmd.lower()}' via pip3...", color_pair=2)
-        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => pip3 install --upgrade {cmd.lower()} ...")
+        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => pip3 install --upgrade {cmd.lower()}.")
         subprocess.run(["pip3", "install", "--upgrade", cmd.lower()], check=False)
 
-        # Now ensure we actually have the tool installed (or sublist3r)
-        if shutil.which(cmd) is None and cmd != "theharvester":
-            # "theharvester" might be installed as "theHarvester"
-            add_progress_line(stdscr, f"[-] '{cmd}' not found, trying one last apt-get install '{pkg}'...", 2)
-            res = subprocess.run(["apt-get", "install", "-y", pkg], check=False)
-            if res.returncode != 0 or shutil.which(cmd) is None:
-                add_progress_line(stdscr, f"[-] Could not install or upgrade '{cmd}'. Please do so manually.", 2)
-                logging.error(f"Could not install or upgrade '{cmd}'. Manual intervention required.")
-                return False
+        # Validate that the tool is present, except we handle sublist3r separately
+        if cmd != "theharvester" and cmd != "recon-ng":
+            # 'theHarvester' might be installed as 'theharvester' or vice versa
+            # 'recon-ng' might still be present but won't fail
+            if shutil.which(cmd) is None:
+                add_progress_line(stdscr, f"[-] Could not locate '{cmd}' after upgrade attempts. Trying apt install...", 2)
+                subprocess.run(["apt-get", "install", "-y", pkg], check=False)
+                if shutil.which(cmd) is None:
+                    add_progress_line(stdscr, f"[-] Could not install '{cmd}'. Please do so manually.", 2)
+                    logging.error(f"Failed installing {cmd}. Aborting.")
+                    return False
         else:
-            logging.debug(f"'{cmd}' upgrade attempt done (apt + pip).")
+            # We'll just log success attempt
+            logging.debug(f"'{cmd}' might be installed under a different alias or version.")
 
     # sublist3r specifically
     if shutil.which(SUBLIST3R_CMD) is None:
@@ -270,28 +268,23 @@ def check_and_install_tools(stdscr):
 
     return True
 
-
 # -------------- WHOIS LOOKUP --------------
 
 def whois_lookup(stdscr, domain):
-    """
-    Perform whois on the domain and store output in logs/whois.txt.
-    """
     add_progress_line(stdscr, "[WHOIS] Looking up domain registration info...")
     os.makedirs("logs", exist_ok=True)
     out_file = "logs/whois.txt"
     run_cmd(["whois", domain], stdout_file=out_file)
     add_progress_line(stdscr, f"[WHOIS] Output => {out_file}")
-    logging.info(f"Whois info written to => {out_file}")
+    logging.info(f"Whois info => {out_file}")
 
-
-# -------------- SUBDOMAIN ENUM + DNS, SSL, EMAIL, PORTS, DIRB --------------
+# -------------- SUBDOMAIN ENUM + DNS, SSL, (theHarvester) & Recon-ng --------------
 
 def subdomain_enumeration(stdscr, domain):
     add_progress_line(stdscr, f"[Subdomain] Enumerating => {domain}")
     os.makedirs("logs", exist_ok=True)
-    subfinder_file    = "logs/subfinder.txt"
-    assetfinder_file  = "logs/assetfinder_raw.txt"
+    subfinder_file   = "logs/subfinder.txt"
+    assetfinder_file = "logs/assetfinder_raw.txt"
 
     run_cmd(["subfinder", "-silent", "-d", domain, "-o", subfinder_file], stdout_file=subfinder_file)
 
@@ -387,32 +380,106 @@ def ssl_check(stdscr, subdomains):
 
     add_progress_line(stdscr, "[SSL] Finished checking certificates.")
 
+# ------------------ Recon-ng Automated Script ------------------
+
+def run_recon_ng_script(target_domain, out_json="logs/reconng_output.json"):
+    """
+    Runs recon-ng with an automated set of commands. 
+    We store everything to a JSON file => out_json.
+    """
+    import subprocess
+
+    # Convert the domain to a suitable workspace name
+    workspace_name = target_domain.replace(".", "_")
+
+    # We'll run a few modules as an example. 
+    # Adjust or add modules as you see fit:
+    recon_commands = [
+        f"workspaces add {workspace_name}",
+        f"add domains {target_domain}",
+
+        # Basic subdomain discovery
+        "use recon/domains-hosts/bing_domain_web",
+        "run",
+        "use recon/domains-hosts/google_site_web",
+        "run",
+
+        # WHOIS POCs => might yield email addresses
+        "use recon/domains-hosts/whois_pocs",
+        "run",
+
+        # Additional modules for contact-based enumeration
+        "use recon/domains-contacts/whois_pocs",
+        "run",
+
+        # Export to JSON 
+        f"export json {out_json}",
+        "exit"
+    ]
+
+    command_script = "; ".join(recon_commands)
+    command = f"recon-ng -w {workspace_name} --no-check -x \"{command_script}\""
+
+    logging.info(f"[run_recon_ng_script] Running => {command}")
+    subprocess.run(command, shell=True, check=False)
+
+def parse_recon_ng_json(json_path):
+    """
+    Parses the JSON file produced by recon-ng 'export json <filename>'.
+    Looks for email addresses or domain contacts in it.
+    Returns a set of found emails.
+    """
+    results = set()
+    if not os.path.exists(json_path):
+        return results
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as fin:
+            data = json.load(fin)
+            # The JSON structure can contain multiple sections. We check 'contacts' or 'hosts'.
+            # Adjust parsing logic if your recon-ng modules produce different fields.
+            if isinstance(data, list):
+                for item in data:
+                    # item might be a dict with different keys
+                    # commonly "type": "contact", "email": "someone@example.com"
+                    if item.get("type") == "contact":
+                        possible_email = item.get("email")
+                        if possible_email and "@" in possible_email:
+                            results.add(possible_email.strip().lower())
+    except:
+        pass
+
+    return results
+
+# ------------------ HARVESTER + recon-ng Gathering ------------------
+
 def gather_emails(stdscr, domain):
     """
     Gathers emails from:
-      - theHarvester
-      - recon-ng (without --workspace)
-    We remove EmailHarvester due to known ASK plugin bug.
+      1) theHarvester
+      2) recon-ng (automated script)
+    Then merges them into logs/emails_merged.txt
     """
-    add_progress_line(stdscr, "[EMAIL] Gathering from theHarvester, recon-ng...") 
+    add_progress_line(stdscr, "[EMAIL] Gathering from theHarvester & automated recon-ng script...")
     os.makedirs("logs", exist_ok=True)
     all_emails = set()
 
-    theharvester_file = f"logs/theharvester_{domain}.txt"
-    cmd_theharvester  = ["theHarvester", "-d", domain, "-b", "all", "-f", theharvester_file]
+    # 1) theHarvester
+    harv_file = f"logs/theharvester_{domain}.txt"
+    cmd_theharvester = ["theHarvester", "-d", domain, "-b", "all", "-f", harv_file]
     add_progress_line(stdscr, f"[EMAIL] Running => {cmd_theharvester}")
-    run_cmd(cmd_theharvester, stdout_file=theharvester_file)
-    th_emails = parse_emails_from_file(theharvester_file)
-    all_emails.update(th_emails)
+    run_cmd(cmd_theharvester, stdout_file=harv_file)
+    # Parse found emails
+    all_emails.update(parse_emails_from_file(harv_file))
 
-    recon_file = f"logs/reconng_{domain}.txt"
-    # No --workspace default
-    cmd_reconng = ["recon-ng"]
-    add_progress_line(stdscr, f"[EMAIL] Running => {cmd_reconng}")
-    run_cmd(cmd_reconng, stdout_file=recon_file)
-    rn_emails = parse_emails_from_file(recon_file)
-    all_emails.update(rn_emails)
+    # 2) recon-ng automated
+    recon_json = "logs/reconng_output.json"
+    run_recon_ng_script(domain, out_json=recon_json)
+    # Parse the JSON for emails
+    recon_emails = parse_recon_ng_json(recon_json)
+    all_emails.update(recon_emails)
 
+    # Save merged
     merged = sorted(all_emails)
     outpath = "logs/emails_merged.txt"
     with open(outpath, "w") as out:
@@ -421,17 +488,7 @@ def gather_emails(stdscr, domain):
 
     add_progress_line(stdscr, f"[EMAIL] Found {len(merged)} unique emails => {outpath}")
 
-def parse_emails_from_file(filepath):
-    results = set()
-    if os.path.exists(filepath):
-        import re
-        regex = re.compile(r"[a-zA-Z0-9.\-_+#~!$&',;=:]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]+")
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as fin:
-            for line in fin:
-                found = regex.findall(line)
-                for item in found:
-                    results.add(item.strip())
-    return results
+# -------------- PORT SCANNING, DIRB, DORKS, GoWitness, SearchSploit --------------
 
 def port_scanning(stdscr, resolved_ips, port_label, nmap_flag):
     add_progress_line(stdscr, f"[Nmap] Scanning IPs => {port_label}")
@@ -467,9 +524,6 @@ def dirb_bruteforce(stdscr, subdomains, dirb_wordlist):
 
     add_progress_line(stdscr, "[Dirb] Completed brute-forcing subdomains.")
 
-
-# -------------- DORKS (Optional Step) --------------
-
 def gather_dorks(stdscr, domain):
     add_progress_line(stdscr, "[DORKS] Processing local dorks.txt...")
 
@@ -487,6 +541,7 @@ def gather_dorks(stdscr, domain):
         for line in fin:
             line = line.strip()
             if line:
+                # Replace {TARGET} with domain
                 dork = line.replace("{TARGET}", domain)
                 processed_lines.append(dork)
 
@@ -495,16 +550,9 @@ def gather_dorks(stdscr, domain):
             fout.write(dork_line + "\n")
 
     add_progress_line(stdscr, f"[DORKS] Wrote {len(processed_lines)} dorks => {out_file}")
-    logging.info(f"Dorks generated into {out_file}.")
-
-
-# -------------- GOWITNESS (Screenshots) --------------
+    logging.info(f"Dorks => {out_file}")
 
 def gowitness_screenshots(stdscr, subdomains):
-    """
-    Takes screenshots of each subdomain using GoWitness.
-    Ensure you have a version that saves .png or .html output.
-    """
     add_progress_line(stdscr, "[GoWitness] Taking screenshots of subdomains...")
 
     out_dir = "gowitness_shots"
@@ -523,12 +571,8 @@ def gowitness_screenshots(stdscr, subdomains):
 
     add_progress_line(stdscr, "[GoWitness] Screenshots complete.")
 
-
-# -------------- SEARCHSPLOIT (Based on Nmap Services) --------------
-
 def searchsploit_exploits(stdscr, nmap_scan_dir):
     add_progress_line(stdscr, "[SearchSploit] Checking enumerated services for exploits...")
-
     os.makedirs("logs", exist_ok=True)
     out_file = "logs/searchsploit_results.txt"
 
@@ -563,15 +607,11 @@ def searchsploit_exploits(stdscr, nmap_scan_dir):
             out.write("\n\n")
 
     add_progress_line(stdscr, f"[SearchSploit] Results => {out_file}")
-    logging.info(f"Searchsploit results stored in {out_file}.")
+    logging.info(f"Searchsploit => {out_file}")
 
-
-# -------------- CONSOLIDATED JSON/CSV REPORT --------------
+# -------------- JSON/CSV REPORTING --------------
 
 def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
-    """
-    Creates a JSON and CSV file in 'outdir' summarizing discovered subdomains & IP combos.
-    """
     data = {
         "domain": domain,
         "num_subdomains": len(subdomains),
@@ -602,7 +642,6 @@ def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
     except Exception as e:
         logging.error(f"Failed writing CSV => {e}")
 
-
 # -------------- MAIN ENUM FLOW --------------
 
 def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, nmap_flag, port_label, dirb_wordlist):
@@ -610,82 +649,80 @@ def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, 
     add_progress_line(stdscr, "[+] Checking/Installing/Upgrading required tools...")
     if not check_and_install_tools(stdscr):
         end_timing("CheckInstall")
-        add_progress_line(stdscr, "[-] Missing tools, cannot continue.", color_pair=2)
+        add_progress_line(stdscr, "[-] Missing or broken tools, cannot continue.", color_pair=2)
         return
     end_timing("CheckInstall")
 
-    # 1) Create timestamped workspace
     start_timing("WorkspaceSetup")
     workdir = ensure_timestamped_dir(domain)
     try:
         os.chdir(workdir)
     except Exception as e:
-        add_progress_line(stdscr, f"[-] Could not enter {workdir}: {e}", color_pair=2)
+        add_progress_line(stdscr, f"[-] Could not enter workspace {workdir}: {e}", color_pair=2)
         end_timing("WorkspaceSetup")
         return
     os.makedirs("logs", exist_ok=True)
     add_progress_line(stdscr, f"[+] Workspace: {os.getcwd()}")
     end_timing("WorkspaceSetup")
 
-    # 2) WHOIS
+    # 1) WHOIS
     start_timing("WHOIS")
     whois_lookup(stdscr, domain)
     end_timing("WHOIS")
 
-    # 3) Subdomain enumeration
+    # 2) Subdomain enumeration
     start_timing("SubdomainEnum")
     subdomains = subdomain_enumeration(stdscr, domain)
     end_timing("SubdomainEnum")
 
-    # 4) DNS checks
+    # 3) DNS checks
     start_timing("DNSResolution")
     subdomain_ips = dns_resolution(stdscr, subdomains)
     end_timing("DNSResolution")
 
-    # 5) SSL checks
+    # 4) SSL checks
     start_timing("SSLChecks")
     ssl_check(stdscr, subdomains)
     end_timing("SSLChecks")
 
-    # 6) Email Gathering (theHarvester + recon-ng only)
+    # 5) Email Gathering (theHarvester + Automated recon-ng)
     start_timing("EmailGathering")
     gather_emails(stdscr, domain)
     end_timing("EmailGathering")
 
-    # 7) Port scanning
+    # 6) Port scanning
     start_timing("PortScan")
     port_scanning(stdscr, subdomain_ips, port_label, nmap_flag)
     end_timing("PortScan")
 
-    # 8) Dirb brute-forcing
+    # 7) Dirb brute-forcing
     start_timing("Dirb")
     dirb_bruteforce(stdscr, subdomains, dirb_wordlist)
     end_timing("Dirb")
 
-    # 9) Dorks
+    # 8) Dorks
     start_timing("Dorks")
     gather_dorks(stdscr, domain)
     end_timing("Dorks")
 
-    # 10) GoWitness screenshots
+    # 9) GoWitness
     start_timing("GoWitness")
     gowitness_screenshots(stdscr, subdomains)
     end_timing("GoWitness")
 
-    # 11) Searchsploit based on Nmap results
+    # 10) SearchSploit
     start_timing("SearchSploit")
     searchsploit_exploits(stdscr, "nmap_scans")
     end_timing("SearchSploit")
 
-    # 12) Consolidated JSON/CSV
+    # 11) Consolidated Reporting
     start_timing("Report")
     create_consolidated_report(domain, subdomains, subdomain_ips, os.getcwd())
     end_timing("Report")
 
     add_progress_line(stdscr, "[+] Completed Full Enumeration Flow!")
 
-
-# -------------- TIMELINE + ENVIRONMENT REFERENCES --------------
+# -------------- TIMELINE + ENV --------------
 
 def build_ascii_timeline(timings_dict):
     completed_steps = []
@@ -708,25 +745,15 @@ def build_ascii_timeline(timings_dict):
     return "\n".join(lines)
 
 def gather_environment_info():
-    """
-    Gather references about the scanning machine:
-      - OS & version
-      - Hostname
-      - Public IP (if 'requests' is installed)
-    """
-    # OS & version
     os_version = platform.platform()
-    hostname = socket.gethostname()
-
-    public_ip = "N/A"
+    hostname   = socket.gethostname()
+    public_ip  = "N/A"
     if REQUESTS_AVAILABLE:
         try:
             public_ip = requests.get("https://api.ipify.org").text.strip()
         except:
-            public_ip = "N/A"
-
+            pass
     return (os_version, hostname, public_ip)
-
 
 # -------------- CURSES MAIN --------------
 
@@ -750,7 +777,6 @@ def curses_main(stdscr, domain, amass_brute, sublister_ports, amass_ports, nmap_
     stop_spinner = True
     spinner_thr.join()
 
-    # Display the ASCII timeline at the bottom
     timeline_str = build_ascii_timeline(STEP_TIMINGS)
     for line in timeline_str.split("\n"):
         add_progress_line(stdscr, line, color_pair=1)
@@ -758,11 +784,9 @@ def curses_main(stdscr, domain, amass_brute, sublister_ports, amass_ports, nmap_
     add_progress_line(stdscr, "[+] Press any key to exit the Recon Wizard...", color_pair=1)
     stdscr.getch()
 
-
 # -------------- MAIN --------------
 
 def main():
-    # Setup logging
     logging.basicConfig(
         filename="recon_wizard.log",
         level=logging.DEBUG,
@@ -771,7 +795,7 @@ def main():
     )
 
     if os.geteuid() != 0:
-        print("[-] Please run as sudo to allow auto-install of missing packages.")
+        print("[-] Please run as sudo to allow auto-install/upgrade of missing packages.")
         logging.error("Not running as root/sudo. Exiting.")
         sys.exit(1)
 
@@ -783,9 +807,8 @@ def main():
 
     if not PSUTIL_AVAILABLE:
         print("[!] psutil is not installed => no CPU/MEM usage in spinner.\n")
-        logging.warning("psutil not found, spinner CPU/MEM usage disabled.")
+        logging.warning("psutil not found; spinner CPU/MEM usage disabled.")
 
-    # Gather user inputs
     domain = input("[?] Target domain (e.g., example.com): ").strip()
     if not domain:
         print("[-] No domain provided. Exiting.")
@@ -832,10 +855,10 @@ def main():
     concurrency_choice = input("\n[?] Enable concurrency for DNS, Dirb, GoWitness, Naabu? (y/N): ").lower().strip()
     use_concurrency = (concurrency_choice == "y")
 
-    # Gather environment info => single line for spinner
-    os_ver, hostnm, pubip = gather_environment_info()
+    # Environment info => single line for spinner
+    os_ver, hostname, pub_ip = gather_environment_info()
     global ENV_LINE
-    ENV_LINE = f"OS:{os_ver} Host:{hostnm} IP:{pubip}"
+    ENV_LINE = f"OS:{os_ver} Host:{hostname} IP:{pub_ip}"
 
     import curses
     try:
@@ -854,16 +877,15 @@ def main():
         print("\n[-] Script interrupted by user.")
         sys.exit(1)
 
-    # The script is done => references at the bottom:
-    print("\n[+] Script finished. Output was saved to a timestamped workspace.")
+    # The script is done => references
+    print("\n[+] Script finished. Data is stored in 'wizard_enum_<domain>_<timestamp>/' subfolders.")
     print("[+] Merged email results => logs/emails_merged.txt (deduplicated).")
     print("[+] The ASCII timeline was shown in curses at the end!\n")
 
-    # Environment references (long form):
     print("----- Environment References -----")
     print(f"  OS Version : {os_ver}")
-    print(f"  Hostname   : {hostnm}")
-    print(f"  Public IP  : {pubip}")
+    print(f"  Hostname   : {hostname}")
+    print(f"  Public IP  : {pub_ip}")
     print("----------------------------------\n")
 
 
