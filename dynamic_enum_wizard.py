@@ -64,7 +64,7 @@ REQUIRED_TOOLS = {
     "gowitness": "gowitness",
     "theharvester": "theharvester",
     "recon-ng": "recon-ng"
-    # sublist3r is handled separately
+    # We'll handle sublist3r separately
 }
 
 SUBLIST3R_CMD     = "sublist3r"
@@ -78,9 +78,9 @@ STEP_TIMINGS      = {}  # step_name -> (start_time, end_time)
 start_time        = None
 
 # We'll store a single-line environment reference for the spinner
-ENV_LINE = ""  # Will be set in main() after we gather environment info.
+ENV_LINE = ""
 
-# -------------- LOGGING SETUP --------------
+# ------------------ LOGGING SETUP ------------------
 # Configured in main() at the bottom.
 
 # -------------- TIMING & UTILS --------------
@@ -117,6 +117,7 @@ def ensure_timestamped_dir(domain):
     Creates a directory like 'wizard_enum_<domain>_YYYYMMDD-HHMMSS'.
     Returns the path to that directory.
     """
+    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dirname = f"wizard_enum_{domain}_{timestamp}"
     os.makedirs(dirname, exist_ok=True)
@@ -167,10 +168,6 @@ def redraw_screen(stdscr):
     stdscr.refresh()
 
 def spinner_thread_func(stdscr):
-    """
-    A separate thread that updates the bottom line with a spinner, CPU/MEM usage (if psutil),
-    and elapsed time since start_time, plus environment info (OS, hostname, public IP).
-    """
     global stop_spinner, ENV_LINE
     import time
     idx = 0
@@ -205,7 +202,6 @@ def spinner_thread_func(stdscr):
 
         time.sleep(0.15)
 
-    # Clean up spinner line
     spinner_row = curses.LINES - 1
     stdscr.move(spinner_row, 0)
     stdscr.clrtoeol()
@@ -236,10 +232,7 @@ def check_and_install_tools(stdscr):
         logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => pip3 install --upgrade {cmd.lower()}.")
         subprocess.run(["pip3", "install", "--upgrade", cmd.lower()], check=False)
 
-        # Validate that the tool is present, except we handle sublist3r separately
-        if cmd != "theharvester" and cmd != "recon-ng":
-            # 'theHarvester' might be installed as 'theharvester' or vice versa
-            # 'recon-ng' might still be present but won't fail
+        if cmd not in ["theharvester", "recon-ng"]:
             if shutil.which(cmd) is None:
                 add_progress_line(stdscr, f"[-] Could not locate '{cmd}' after upgrade attempts. Trying apt install...", 2)
                 subprocess.run(["apt-get", "install", "-y", pkg], check=False)
@@ -248,7 +241,6 @@ def check_and_install_tools(stdscr):
                     logging.error(f"Failed installing {cmd}. Aborting.")
                     return False
         else:
-            # We'll just log success attempt
             logging.debug(f"'{cmd}' might be installed under a different alias or version.")
 
     # sublist3r specifically
@@ -278,7 +270,7 @@ def whois_lookup(stdscr, domain):
     add_progress_line(stdscr, f"[WHOIS] Output => {out_file}")
     logging.info(f"Whois info => {out_file}")
 
-# -------------- SUBDOMAIN ENUM + DNS, SSL, (theHarvester) & Recon-ng --------------
+# -------------- SUBDOMAIN ENUM + DNS, SSL --------------
 
 def subdomain_enumeration(stdscr, domain):
     add_progress_line(stdscr, f"[Subdomain] Enumerating => {domain}")
@@ -380,6 +372,23 @@ def ssl_check(stdscr, subdomains):
 
     add_progress_line(stdscr, "[SSL] Finished checking certificates.")
 
+# -------------- parse_emails_from_file (RESTORED) --------------
+
+def parse_emails_from_file(filepath):
+    """
+    Reads lines from a file and extracts valid emails using a regex.
+    """
+    results = set()
+    if os.path.exists(filepath):
+        import re
+        email_regex = re.compile(r"[a-zA-Z0-9.\-_+#~!$&',;=:]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]+")
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as fin:
+            for line in fin:
+                found_emails = email_regex.findall(line)
+                for item in found_emails:
+                    results.add(item.strip().lower())
+    return results
+
 # ------------------ Recon-ng Automated Script ------------------
 
 def run_recon_ng_script(target_domain, out_json="logs/reconng_output.json"):
@@ -389,11 +398,8 @@ def run_recon_ng_script(target_domain, out_json="logs/reconng_output.json"):
     """
     import subprocess
 
-    # Convert the domain to a suitable workspace name
     workspace_name = target_domain.replace(".", "_")
 
-    # We'll run a few modules as an example. 
-    # Adjust or add modules as you see fit:
     recon_commands = [
         f"workspaces add {workspace_name}",
         f"add domains {target_domain}",
@@ -436,12 +442,8 @@ def parse_recon_ng_json(json_path):
     try:
         with open(json_path, "r", encoding="utf-8") as fin:
             data = json.load(fin)
-            # The JSON structure can contain multiple sections. We check 'contacts' or 'hosts'.
-            # Adjust parsing logic if your recon-ng modules produce different fields.
             if isinstance(data, list):
                 for item in data:
-                    # item might be a dict with different keys
-                    # commonly "type": "contact", "email": "someone@example.com"
                     if item.get("type") == "contact":
                         possible_email = item.get("email")
                         if possible_email and "@" in possible_email:
@@ -457,7 +459,7 @@ def gather_emails(stdscr, domain):
     """
     Gathers emails from:
       1) theHarvester
-      2) recon-ng (automated script)
+      2) Automated recon-ng script => reconng_output.json
     Then merges them into logs/emails_merged.txt
     """
     add_progress_line(stdscr, "[EMAIL] Gathering from theHarvester & automated recon-ng script...")
@@ -472,7 +474,7 @@ def gather_emails(stdscr, domain):
     # Parse found emails
     all_emails.update(parse_emails_from_file(harv_file))
 
-    # 2) recon-ng automated
+    # 2) Automated recon-ng
     recon_json = "logs/reconng_output.json"
     run_recon_ng_script(domain, out_json=recon_json)
     # Parse the JSON for emails
@@ -488,7 +490,7 @@ def gather_emails(stdscr, domain):
 
     add_progress_line(stdscr, f"[EMAIL] Found {len(merged)} unique emails => {outpath}")
 
-# -------------- PORT SCANNING, DIRB, DORKS, GoWitness, SearchSploit --------------
+# -------------- PORT SCANNING, DIRB, DORKS, GoWitness, SearchSploit, etc. --------------
 
 def port_scanning(stdscr, resolved_ips, port_label, nmap_flag):
     add_progress_line(stdscr, f"[Nmap] Scanning IPs => {port_label}")
@@ -541,7 +543,6 @@ def gather_dorks(stdscr, domain):
         for line in fin:
             line = line.strip()
             if line:
-                # Replace {TARGET} with domain
                 dork = line.replace("{TARGET}", domain)
                 processed_lines.append(dork)
 
@@ -593,7 +594,7 @@ def searchsploit_exploits(stdscr, nmap_scan_dir):
                 line = line.strip()
                 match = service_line_regex.match(line)
                 if match:
-                    raw_service = match.group(2)  # e.g. "Apache httpd 2.4.7"
+                    raw_service = match.group(2)
                     if raw_service:
                         discovered_services.add(raw_service)
 
@@ -609,7 +610,7 @@ def searchsploit_exploits(stdscr, nmap_scan_dir):
     add_progress_line(stdscr, f"[SearchSploit] Results => {out_file}")
     logging.info(f"Searchsploit => {out_file}")
 
-# -------------- JSON/CSV REPORTING --------------
+# -------------- JSON/CSV REPORT --------------
 
 def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
     data = {
@@ -623,7 +624,6 @@ def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
     json_path = os.path.join(outdir, "consolidated_report.json")
     csv_path  = os.path.join(outdir, "resolved_ips.csv")
 
-    # JSON
     try:
         with open(json_path, "w", encoding="utf-8") as jout:
             json.dump(data, jout, indent=2)
@@ -631,7 +631,6 @@ def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
     except Exception as e:
         logging.error(f"Failed writing JSON => {e}")
 
-    # CSV
     try:
         with open(csv_path, "w", newline="", encoding="utf-8") as cfile:
             writer = csv.writer(cfile)
@@ -675,7 +674,7 @@ def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, 
     subdomains = subdomain_enumeration(stdscr, domain)
     end_timing("SubdomainEnum")
 
-    # 3) DNS checks
+    # 3) DNS resolution
     start_timing("DNSResolution")
     subdomain_ips = dns_resolution(stdscr, subdomains)
     end_timing("DNSResolution")
@@ -685,7 +684,7 @@ def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, 
     ssl_check(stdscr, subdomains)
     end_timing("SSLChecks")
 
-    # 5) Email Gathering (theHarvester + Automated recon-ng)
+    # 5) Email Gathering
     start_timing("EmailGathering")
     gather_emails(stdscr, domain)
     end_timing("EmailGathering")
@@ -715,14 +714,14 @@ def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, 
     searchsploit_exploits(stdscr, "nmap_scans")
     end_timing("SearchSploit")
 
-    # 11) Consolidated Reporting
+    # 11) Consolidated JSON/CSV
     start_timing("Report")
     create_consolidated_report(domain, subdomains, subdomain_ips, os.getcwd())
     end_timing("Report")
 
     add_progress_line(stdscr, "[+] Completed Full Enumeration Flow!")
 
-# -------------- TIMELINE + ENV --------------
+# -------------- TIMELINE + ENV GATHERING --------------
 
 def build_ascii_timeline(timings_dict):
     completed_steps = []
@@ -855,7 +854,6 @@ def main():
     concurrency_choice = input("\n[?] Enable concurrency for DNS, Dirb, GoWitness, Naabu? (y/N): ").lower().strip()
     use_concurrency = (concurrency_choice == "y")
 
-    # Environment info => single line for spinner
     os_ver, hostname, pub_ip = gather_environment_info()
     global ENV_LINE
     ENV_LINE = f"OS:{os_ver} Host:{hostname} IP:{pub_ip}"
@@ -877,7 +875,6 @@ def main():
         print("\n[-] Script interrupted by user.")
         sys.exit(1)
 
-    # The script is done => references
     print("\n[+] Script finished. Data is stored in 'wizard_enum_<domain>_<timestamp>/' subfolders.")
     print("[+] Merged email results => logs/emails_merged.txt (deduplicated).")
     print("[+] The ASCII timeline was shown in curses at the end!\n")
