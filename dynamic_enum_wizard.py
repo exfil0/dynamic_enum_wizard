@@ -62,9 +62,10 @@ REQUIRED_TOOLS = {
     "dirb": "dirb",
     "naabu": "naabu",
     "gowitness": "gowitness",
-    "theharvester": "theharvester",
-    "emailharvester": "emailharvester",
-    "recon-ng": "recon-ng"
+    # "emailharvester": "emailharvester",  # Removed - known bug with ASK
+    "theharvester": "theharvester",       # We'll call it theHarvester
+    "recon-ng": "recon-ng",
+    # sublist3r is checked below
 }
 
 SUBLIST3R_CMD     = "sublist3r"
@@ -211,66 +212,61 @@ def spinner_thread_func(stdscr):
     stdscr.clrtoeol()
     stdscr.refresh()
 
-# -------------- INSTALL & CHECK REQUIRED TOOLS --------------
+# -------------- INSTALL & CHECK (and UPGRADE) REQUIRED TOOLS --------------
 
 def check_and_install_tools(stdscr):
     """
-    Checks for required tools and attempts to install them if missing.
+    Checks for required tools and attempts to:
+      1) apt-get update
+      2) apt-get install --only-upgrade
+      3) pip3 install --upgrade
+    to ensure we have the latest versions.
     Logs failures or successes.
     """
     import subprocess
     apt_updated = False
     for cmd, pkg in REQUIRED_TOOLS.items():
-        if shutil.which(cmd) is None:
-            add_progress_line(stdscr, f"[!] Installing '{cmd}' => '{pkg}'...", color_pair=2)
-            logging.info(f"Attempting to install '{cmd}' => '{pkg}'...")
-            if not apt_updated:
-                subprocess.run(["apt-get", "update", "-y"], check=False)
-                apt_updated = True
-
-            res = subprocess.run(["apt-get", "install", "-y", pkg], check=False)
-            if res.returncode != 0:
-                add_progress_line(stdscr, f"[!] Attempting pip3 install for '{cmd}'...", color_pair=2)
-                pip_res = subprocess.run(["pip3", "install", cmd.lower()], check=False)
-                if pip_res.returncode != 0:
-                    add_progress_line(stdscr, f"[-] Could not install '{cmd}'. Please install manually.", color_pair=2)
-                    logging.error(f"Could not install '{cmd}'. Manual intervention required.")
-                    return False
-
-            if shutil.which(cmd) is None:
-                add_progress_line(stdscr, f"[-] '{cmd}' not found after attempts.", color_pair=2)
-                logging.error(f"'{cmd}' still not found after attempts.")
-                return False
-            else:
-                add_progress_line(stdscr, f"[+] '{cmd}' installed OK.", color_pair=1)
-                logging.info(f"'{cmd}' installed successfully.")
-        else:
-            logging.debug(f"'{cmd}' already installed.")
-
-    # sublist3r specifically
-    if shutil.which(SUBLIST3R_CMD) is None:
-        add_progress_line(stdscr, "[!] Installing sublist3r...", color_pair=2)
-        logging.info("Installing sublist3r...")
+        # Force apt-get update once if not done
         if not apt_updated:
             subprocess.run(["apt-get", "update", "-y"], check=False)
             apt_updated = True
 
-        res_subl = subprocess.run(["apt-get", "install", "-y", SUBLIST3R_APT_PKG], check=False)
-        if res_subl.returncode != 0:
-            add_progress_line(stdscr, "[!] Trying 'pip3 install sublist3r'...", color_pair=2)
-            pip_res = subprocess.run(["pip3", "install", "sublist3r"], check=False)
-            if pip_res.returncode != 0:
-                add_progress_line(stdscr, "[-] Could not install sublist3r. Install manually.", color_pair=2)
-                logging.error("Could not install sublist3r.")
+        # Attempt to upgrade from apt
+        add_progress_line(stdscr, f"[!] Upgrading '{cmd}' => '{pkg}' via apt-get...", color_pair=2)
+        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => '{pkg}' via apt-get...")
+        subprocess.run(["apt-get", "install", "--only-upgrade", "-y", pkg], check=False)
+
+        # Also try pip upgrade
+        add_progress_line(stdscr, f"[!] Upgrading '{cmd}' => '{cmd.lower()}' via pip3...", color_pair=2)
+        logging.info(f"[check_and_install_tools] Upgrading '{cmd}' => pip3 install --upgrade {cmd.lower()} ...")
+        subprocess.run(["pip3", "install", "--upgrade", cmd.lower()], check=False)
+
+        # Now ensure we actually have the tool installed (or sublist3r)
+        if shutil.which(cmd) is None and cmd != "theharvester":
+            # "theharvester" might be installed as "theHarvester"
+            add_progress_line(stdscr, f"[-] '{cmd}' not found, trying one last apt-get install '{pkg}'...", 2)
+            res = subprocess.run(["apt-get", "install", "-y", pkg], check=False)
+            if res.returncode != 0 or shutil.which(cmd) is None:
+                add_progress_line(stdscr, f"[-] Could not install or upgrade '{cmd}'. Please do so manually.", 2)
+                logging.error(f"Could not install or upgrade '{cmd}'. Manual intervention required.")
                 return False
+        else:
+            logging.debug(f"'{cmd}' upgrade attempt done (apt + pip).")
+
+    # sublist3r specifically
+    if shutil.which(SUBLIST3R_CMD) is None:
+        add_progress_line(stdscr, "[!] Upgrading/Installing sublist3r...", color_pair=2)
+        logging.info("[check_and_install_tools] Upgrading sublist3r (apt + pip).")
+
+        subprocess.run(["apt-get", "install", "--only-upgrade", "-y", SUBLIST3R_APT_PKG], check=False)
+        subprocess.run(["pip3", "install", "--upgrade", "sublist3r"], check=False)
 
         if shutil.which(SUBLIST3R_CMD) is None:
             add_progress_line(stdscr, "[-] sublist3r not found after attempts.", color_pair=2)
-            logging.error("sublist3r not found after attempts.")
+            logging.error("sublist3r not found after forced attempts.")
             return False
         else:
-            add_progress_line(stdscr, "[+] sublist3r installed OK.", color_pair=1)
-            logging.info("sublist3r installed successfully.")
+            add_progress_line(stdscr, "[+] sublist3r installed/upgraded OK.", color_pair=1)
 
     return True
 
@@ -351,7 +347,6 @@ def dns_resolution(stdscr, subdomains):
                         resolved.append((sd, ip))
                 except Exception as e:
                     dns_log.write(f"{sd} => [ERROR] {e}\n")
-
     else:
         with open(dns_log_path, "w") as dns_log:
             for i, sd in enumerate(subdomains, start=1):
@@ -393,26 +388,26 @@ def ssl_check(stdscr, subdomains):
     add_progress_line(stdscr, "[SSL] Finished checking certificates.")
 
 def gather_emails(stdscr, domain):
-    add_progress_line(stdscr, "[EMAIL] Gathering from theHarvester, EmailHarvester, recon-ng...")
+    """
+    Gathers emails from:
+      - theHarvester
+      - recon-ng (without --workspace)
+    We remove EmailHarvester due to known ASK plugin bug.
+    """
+    add_progress_line(stdscr, "[EMAIL] Gathering from theHarvester, recon-ng...") 
     os.makedirs("logs", exist_ok=True)
     all_emails = set()
 
     theharvester_file = f"logs/theharvester_{domain}.txt"
-    cmd_theharvester  = ["theharvester", "-d", domain, "-b", "all", "-f", theharvester_file]
+    cmd_theharvester  = ["theHarvester", "-d", domain, "-b", "all", "-f", theharvester_file]
     add_progress_line(stdscr, f"[EMAIL] Running => {cmd_theharvester}")
     run_cmd(cmd_theharvester, stdout_file=theharvester_file)
     th_emails = parse_emails_from_file(theharvester_file)
     all_emails.update(th_emails)
 
-    emailharvester_file = f"logs/emailharvester_{domain}.txt"
-    cmd_emailharvester  = ["emailharvester", "-d", domain, "-l", "100"]
-    add_progress_line(stdscr, f"[EMAIL] Running => {cmd_emailharvester}")
-    run_cmd(cmd_emailharvester, stdout_file=emailharvester_file)
-    eh_emails = parse_emails_from_file(emailharvester_file)
-    all_emails.update(eh_emails)
-
     recon_file = f"logs/reconng_{domain}.txt"
-    cmd_reconng = ["recon-ng", "--workspace", "default"]
+    # No --workspace default
+    cmd_reconng = ["recon-ng"]
     add_progress_line(stdscr, f"[EMAIL] Running => {cmd_reconng}")
     run_cmd(cmd_reconng, stdout_file=recon_file)
     rn_emails = parse_emails_from_file(recon_file)
@@ -476,10 +471,6 @@ def dirb_bruteforce(stdscr, subdomains, dirb_wordlist):
 # -------------- DORKS (Optional Step) --------------
 
 def gather_dorks(stdscr, domain):
-    """
-    Reads local 'dorks.txt' and replaces '{TARGET}' with the user's domain,
-    then writes them to logs/dorks_output.txt for manual usage.
-    """
     add_progress_line(stdscr, "[DORKS] Processing local dorks.txt...")
 
     local_dorks_file = "dorks.txt"
@@ -512,6 +503,7 @@ def gather_dorks(stdscr, domain):
 def gowitness_screenshots(stdscr, subdomains):
     """
     Takes screenshots of each subdomain using GoWitness.
+    Ensure you have a version that saves .png or .html output.
     """
     add_progress_line(stdscr, "[GoWitness] Taking screenshots of subdomains...")
 
@@ -535,10 +527,6 @@ def gowitness_screenshots(stdscr, subdomains):
 # -------------- SEARCHSPLOIT (Based on Nmap Services) --------------
 
 def searchsploit_exploits(stdscr, nmap_scan_dir):
-    """
-    Parse the nmap_scans/*.txt for services, run searchsploit <service>.
-    Writes results to logs/searchsploit_results.txt.
-    """
     add_progress_line(stdscr, "[SearchSploit] Checking enumerated services for exploits...")
 
     os.makedirs("logs", exist_ok=True)
@@ -619,7 +607,7 @@ def create_consolidated_report(domain, subdomains, resolved_ips, outdir):
 
 def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, nmap_flag, port_label, dirb_wordlist):
     start_timing("CheckInstall")
-    add_progress_line(stdscr, "[+] Checking/Installing required tools...")
+    add_progress_line(stdscr, "[+] Checking/Installing/Upgrading required tools...")
     if not check_and_install_tools(stdscr):
         end_timing("CheckInstall")
         add_progress_line(stdscr, "[-] Missing tools, cannot continue.", color_pair=2)
@@ -659,7 +647,7 @@ def enumeration_flow(stdscr, domain, amass_brute, sublister_ports, amass_ports, 
     ssl_check(stdscr, subdomains)
     end_timing("SSLChecks")
 
-    # 6) Email Gathering
+    # 6) Email Gathering (theHarvester + recon-ng only)
     start_timing("EmailGathering")
     gather_emails(stdscr, domain)
     end_timing("EmailGathering")
@@ -724,26 +712,12 @@ def gather_environment_info():
     Gather references about the scanning machine:
       - OS & version
       - Hostname
-      - Private/Internal IP
       - Public IP (if 'requests' is installed)
     """
-    info_lines = []
-
     # OS & version
     os_version = platform.platform()
-    info_lines.append(os_version)
-
-    # Hostname
     hostname = socket.gethostname()
-    info_lines.append(hostname)
 
-    # Internal/Private IP
-    try:
-        internal_ip = socket.gethostbyname(hostname)
-    except:
-        internal_ip = "N/A"
-
-    # Public IP
     public_ip = "N/A"
     if REQUESTS_AVAILABLE:
         try:
@@ -751,7 +725,6 @@ def gather_environment_info():
         except:
             public_ip = "N/A"
 
-    # Return them as a single line so we can put it near the timer
     return (os_version, hostname, public_ip)
 
 
@@ -861,7 +834,6 @@ def main():
 
     # Gather environment info => single line for spinner
     os_ver, hostnm, pubip = gather_environment_info()
-    # e.g. "OS: Linux Host: myhost IP: 1.2.3.4"
     global ENV_LINE
     ENV_LINE = f"OS:{os_ver} Host:{hostnm} IP:{pubip}"
 
